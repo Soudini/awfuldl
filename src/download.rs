@@ -1,11 +1,7 @@
-use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use regex::Regex;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Shutdown, TcpStream};
-use std::str::from_utf8;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::net::{IpAddr, Shutdown, TcpStream};
 
 #[derive(Debug, Clone)]
 pub struct DCCStream {
@@ -15,13 +11,13 @@ pub struct DCCStream {
     pub file_size: usize,
 }
 
-pub fn download_anime(
-    anime: &DCCStream,
-    progress_bar: &mut ProgressBar<Pipe>,
-) -> std::result::Result<(), std::io::Error> {
-    progress_bar.set_units(Units::Bytes);
-    progress_bar.message(&format!("{}: ", &anime.filename));
+pub fn download_anime(anime: &DCCStream) -> std::result::Result<(), std::io::Error> {
+    let bar = ProgressBar::new(anime.file_size as u64);
+    bar.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .progress_chars("#>-"));
     let filename = anime.filename.to_string();
+    bar.set_message(&filename);
     let mut file = File::create(&anime.filename).unwrap();
     let mut stream = TcpStream::connect(format!("{}:{}", anime.ip, anime.port)).unwrap();
     let mut buffer = [0; 4096];
@@ -29,12 +25,12 @@ pub fn download_anime(
 
     while progress < anime.file_size {
         let count = stream.read(&mut buffer[..]).unwrap();
-        file.write(&mut buffer[..count]);
+        file.write(&mut buffer[..count]).unwrap();
         progress += count;
-        progress_bar.set(progress as u64);
-        progress_bar.finish();
-        stream.shutdown(Shutdown::Both);
-        file.flush();
+        bar.set_position(progress as u64);
+        // println!("download for {} is at {}/{}", anime.filename, progress, anime.file_size);
     }
+    stream.shutdown(Shutdown::Both).unwrap();
+    file.flush().unwrap();
     Ok(())
 }

@@ -2,11 +2,8 @@ use futures::prelude::*;
 use irc::client::prelude::*;
 use regex::Regex;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr, Shutdown, TcpStream};
-use std::{thread, time};
+use std::net::{IpAddr, Ipv4Addr};
 mod download;
-use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 struct HSQueryResults {
@@ -22,35 +19,16 @@ use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::style;
 
-const terminal_size_offset: usize = 4;
+const TERMINAL_SIZE_OFFSET: usize = 4;
 //  /msg Ginpachi-Sensei xdcc send #10199
 
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
-    let mut current_anime = 0;
-    let mut started_downloading = false;
-    let mut asked_for_anime = false;
+    let mut current_anime : usize = 0;
+    let mut started_downloading: bool = false;
 
-    let anime_test_list: Vec<HSQueryResults> = vec![
-        HSQueryResults {
-            bot: "ARUTHA-BATCH|720p".to_string(),
-            pack: 7680,
-            size: 294,
-            filename: "[HorribleSubs] Rakudai Kishi no Cavalry - 01 [720p].mkv".to_string(),
-        },
-        HSQueryResults {
-            bot: "ARUTHA-BATCH|720p".to_string(),
-            pack: 7681,
-            size: 293,
-            filename: "[HorribleSubs] Rakudai Kishi no Cavalry - 02 [720p].mkv".to_string(),
-        },
-        HSQueryResults {
-            bot: "ARUTHA-BATCH|720p".to_string(),
-            pack: 7682,
-            size: 293,
-            filename: "[HorribleSubs] Rakudai Kishi no Cavalry - 03 [720p].mkv".to_string(),
-        },
-    ];
+    let anime_list = choose_download().await;
+
     let re = Regex::new(r#""(.*)" (\d*) (\d*) (\d*)"#).unwrap();
     let config = Config {
         nickname: Some("soudini-awfuldl".to_owned()),
@@ -65,78 +43,48 @@ async fn main() -> Result<(), failure::Error> {
     let mut stream = client.stream()?;
     println!("streaming");
 
-    let mut dcc_streams_list: Vec<download::DCCStream> = vec![];
 
     while let Some(message) = stream.next().await.transpose()? {
-        if dcc_streams_list.len() == anime_test_list.len() {
+        if current_anime >= anime_list.len() {
             break;
         }
         match &message.command {
             Command::PRIVMSG(_, message) => {
-                
                 println!("Getting PRIVMSG {:#?}", &message);
                 if re.is_match(&message) {
-                    let mut mb = Arc::new(MultiBar::new());
-
                     for cap in re.captures_iter(&message) {
-                        let mut progress_bar =
-                            mb.create_bar(cap[4].parse::<usize>().unwrap() as u64);
-
-                        thread::spawn(move || {
-                            download::download_anime(
-                                &download::DCCStream {
-                                    filename: cap[1].to_string(),
-                                    ip: IpAddr::V4(Ipv4Addr::from(cap[2].parse::<u32>().unwrap())),
-                                    port: cap[3].parse::<usize>().unwrap(),
-                                    file_size: cap[4].parse::<usize>().unwrap(),
-                                },
-                                &mut progress_bar,
-                            )
-                        }).join().unwrap();
+                        download::download_anime(&download::DCCStream {
+                            filename: cap[1].to_string(),
+                            ip: IpAddr::V4(Ipv4Addr::from(cap[2].parse::<u32>().unwrap())),
+                            port: cap[3].parse::<usize>().unwrap(),
+                            file_size: cap[4].parse::<usize>().unwrap(),
+                        })
+                        .unwrap();
                         current_anime += 1;
-                        send_dl_request(&client, &anime_test_list[current_anime])
+                        if current_anime >= anime_list.len() {
+                            break;
+                        }
+                        send_dl_request(&client, &anime_list[current_anime])
                             .await
                             .unwrap();
-                        mb.listen();
                     }
                 }
-                println!("{:#?}", dcc_streams_list);
             }
             Command::PONG(_, _) => {
-                println!("Getting PONG msg : {:#?}", &message);
+                //println!("Getting PONG msg : {:#?}", &message);
                 if !started_downloading {
-                    send_dl_request(&client, &anime_test_list[current_anime])
+                    send_dl_request(&client, &anime_list[current_anime])
                         .await
                         .unwrap();
+                    started_downloading = true;
                 }
             }
             _ => {}
         }
     }
-    // let download_counter = Arc::new(Mutex::new(0));
-    // for (i, dcc_stream) in dcc_streams_list.iter().enumerate() {
-    //     let mut progress_bar = mb.create_bar(dcc_stream.file_size as u64);
-    //     let dcc_stream_clone = dcc_stream.clone();
-    //     thread::spawn(move || download::download_anime(&dcc_stream_clone, &mut progress_bar));
-    // }
-    // mb.listen();
     Ok(())
 }
 
-async fn send_multiple_dl_request(
-    client: &Client,
-    anime_list: &Vec<HSQueryResults>,
-) -> Result<(), failure::Error> {
-    println!("starting to send messages");
-    for anime in anime_list.iter() {
-        println!("asking for {} from {}", &anime.filename, &anime.bot);
-        client
-            .send_privmsg(&anime.bot, format!("xdcc send #{}", &anime.pack))
-            .unwrap();
-        thread::sleep(time::Duration::from_millis(100));
-    }
-    Ok(())
-}
 
 async fn send_dl_request(client: &Client, anime: &HSQueryResults) -> Result<(), failure::Error> {
     println!("starting to send messages");
@@ -147,7 +95,7 @@ async fn send_dl_request(client: &Client, anime: &HSQueryResults) -> Result<(), 
     Ok(())
 }
 
-fn choose_download() -> Vec<HSQueryResults> {
+async fn choose_download() -> Vec<HSQueryResults> {
     let args: Vec<String> = env::args().collect();
     // Get the standard input stream.
     let stdin = stdin();
@@ -165,7 +113,7 @@ fn choose_download() -> Vec<HSQueryResults> {
     stdout.flush().unwrap();
 
     let mut cursor_position: usize = 0;
-    let anime_list = get_anime_list(&args[1]).unwrap();
+    let anime_list: Vec<HSQueryResults> = get_anime_list(&args[1]).await.unwrap();
     let texts = anime_list
         .iter()
         .map(|anime| &anime.filename)
@@ -174,7 +122,7 @@ fn choose_download() -> Vec<HSQueryResults> {
 
     let mut display_window: [usize; 2] = [
         0,
-        termion::terminal_size().unwrap().1 as usize - terminal_size_offset - 1,
+        termion::terminal_size().unwrap().1 as usize - TERMINAL_SIZE_OFFSET - 1,
     ];
 
     display_text(&texts, cursor_position, &selection, &display_window);
@@ -244,14 +192,14 @@ fn move_cursor(
             *display_window = [
                 *cursor_position,
                 termion::terminal_size().unwrap().1 as usize - 1 + *cursor_position
-                    - terminal_size_offset,
+                    - TERMINAL_SIZE_OFFSET,
             ];
         }
     } else if (cursor_move == 1) & (*cursor_position < position_max - 1) {
         *cursor_position += 1;
         if *cursor_position >= display_window[1] {
             *display_window = [
-                *cursor_position + 1 + terminal_size_offset
+                *cursor_position + 1 + TERMINAL_SIZE_OFFSET
                     - termion::terminal_size().unwrap().1 as usize,
                 *cursor_position,
             ];
@@ -285,15 +233,15 @@ fn display_text(
     }
 }
 
-fn get_anime_list(search: &str) -> Result<Vec<HSQueryResults>, Box<dyn std::error::Error>> {
+async fn get_anime_list(search: &str) -> Result<Vec<HSQueryResults>, Box<dyn std::error::Error>> {
     let re = Regex::new(r#"b:"(.*)", n:(\d*), s:(\d*), f:"(.*)"}"#).unwrap();
-    let resp = reqwest::blocking::get(&format!(
+    let resp = reqwest::get(&format!(
         "https://xdcc.horriblesubs.info/search.php?t={}",
         search
     ))
-    .unwrap()
+    .await?
     .text()
-    .unwrap();
+    .await?;
 
     let list: Vec<&str> = resp.split(";\n").collect();
     let mut v: Vec<HSQueryResults> = Vec::new();
