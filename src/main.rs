@@ -220,7 +220,7 @@ fn display_text(
     display_window: &[usize; 2],
 ) {
     println!(
-        "{bold}<ESC> = <quit> <space> = <toggle> <z/s> = <Up/Down> <MAJ+z/MAJ+s> = <Select + Up/Select + Down> <CTRL+z/CTRL+s> = <Unselect + Up/Unselect + Down>{reset}\r",
+        "{bold}<ESC> = <quit> <Enter> = <start download> <space> = <toggle> <z/s> = <Up/Down> <MAJ+z/MAJ+s> = <Select + Up/Select + Down> <CTRL+z/CTRL+s> = <Unselect + Up/Unselect + Down>{reset}\r",
         bold = style::Bold,
         reset = style::Reset,
     );
