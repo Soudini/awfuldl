@@ -136,7 +136,13 @@ async fn choose_download() -> Vec<HSQueryResults> {
         .unwrap();
 
         match c.unwrap() {
-            Key::Char('q') => break,
+            Key::Esc => {
+                write!(stdout, "{}{}", termion::cursor::Show, termion::clear::All).unwrap();
+
+                stdout.flush().unwrap();
+                std::mem::drop(stdout);
+                std::process::exit(0)
+            }
             Key::Char('z') => {
                 move_cursor(&mut cursor_position, -1, texts.len(), &mut display_window)
             }
@@ -213,6 +219,11 @@ fn display_text(
     selection: &Vec<bool>,
     display_window: &[usize; 2],
 ) {
+    println!(
+        "{bold}<ESC> = <quit> <space> = <toggle> <z/s> = <Up/Down> <MAJ+z/MAJ+s> = <Select + Up/Select + Down> <CTRL+z/CTRL+s> = <Unselect + Up/Unselect + Down>{reset}\r",
+        bold = style::Bold,
+        reset = style::Reset,
+    );
     for i in display_window[0]..=std::cmp::min(display_window[1], texts.len() - 1) {
         if i == cursor_position {
             println!(
