@@ -1,0 +1,18 @@
+[package]
+name = "awfuldl"
+version = "0.1.0"
+authors = ["Arnaud 'Soudini' LOUYS <arnaud.louys@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.5.5"
+reqwest = { version = "0.10", features = ["json", "blocking"] }
+tokio = { version = "0.2", features = ["full"] }
+regex = "1"
+termion = "1.5.5"
+irc="0.14"
+futures="0.3.5"
+failure = "0.1.8"
+pbr = "1.0.3"
